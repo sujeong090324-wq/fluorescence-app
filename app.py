@@ -3,8 +3,13 @@ import cv2
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from PIL import Image
+from PIL import Image, ImageOps
 from datetime import datetime
+
+
+# ==================================================
+# 페이지 설정
+# ==================================================
 
 st.set_page_config(
     page_title="플루오레세인 형광 분석",
@@ -12,6 +17,10 @@ st.set_page_config(
 )
 
 st.title("🧪 플루오레세인 형광 분석")
+st.caption(
+    "플루오레세인 나트륨의 pH에 따른 형광 발광 세기와 "
+    "pH 6 완충용액의 완충 효과를 분석합니다."
+)
 
 
 # ==================================================
@@ -39,7 +48,7 @@ if "data" not in st.session_state:
 # 실험 조건
 # ==================================================
 
-st.sidebar.header("실험 조건")
+st.sidebar.header("🧪 실험 조건")
 
 sample_type = st.sidebar.selectbox(
     "시료 종류",
@@ -47,7 +56,6 @@ sample_type = st.sidebar.selectbox(
         "농도 예비실험",
         "pH-형광 기준 시료",
         "pH 6 완충용액",
-        "증류수 대조군",
         "기타 시료"
     ]
 )
@@ -60,7 +68,7 @@ sample_type = st.sidebar.selectbox(
 if sample_type == "농도 예비실험":
 
     concentration = st.sidebar.number_input(
-        "플루오레세인 농도(%)",
+        "플루오레세인 나트륨 농도(%)",
         min_value=0.0000,
         value=0.0010,
         step=0.0010,
@@ -74,12 +82,17 @@ if sample_type == "농도 예비실험":
 
 
 # --------------------------------------------------
-# 그 외 시료
+# pH-형광 기준 시료
 # --------------------------------------------------
 
-else:
+elif sample_type == "pH-형광 기준 시료":
 
-    concentration = np.nan
+    # 본실험 최종 농도
+    concentration = 0.0010
+
+    st.sidebar.info(
+        "본실험의 플루오레세인 나트륨 최종 농도: 0.001%"
+    )
 
     ph = st.sidebar.number_input(
         "실제 pH",
@@ -89,77 +102,130 @@ else:
         step=0.1
     )
 
-    # 완충용액과 증류수에서만 사용
-    if sample_type in ["pH 6 완충용액", "증류수 대조군"]:
+    addition_type = "없음"
+    addition_step = np.nan
+    addition_volume = np.nan
 
-        addition_type = st.sidebar.selectbox(
-            "첨가 종류",
-            [
-                "무첨가",
-                "HCl",
-                "NaOH"
-            ]
-        )
 
-        if addition_type == "무첨가":
+# --------------------------------------------------
+# pH 6 완충용액
+# --------------------------------------------------
 
-            addition_step = 0
-            addition_volume = 0.0
+elif sample_type == "pH 6 완충용액":
 
-        else:
+    concentration = 0.0010
 
-            addition_step = st.sidebar.number_input(
-                "첨가 단계",
-                min_value=0,
-                max_value=6,
-                value=0,
-                step=1
-            )
+    st.sidebar.info(
+        "플루오레세인 나트륨 최종 농도: 0.001%"
+    )
 
-            addition_volume = st.sidebar.number_input(
-                "산·염기 첨가량(mL)",
-                min_value=0.0,
-                max_value=6.0,
-                value=float(addition_step),
-                step=1.0
-            )
+    ph = st.sidebar.number_input(
+        "실제 pH",
+        min_value=0.0,
+        max_value=14.0,
+        value=6.0,
+        step=0.1
+    )
+
+    addition_type = st.sidebar.selectbox(
+        "첨가 종류",
+        [
+            "무첨가",
+            "HCl",
+            "NaOH"
+        ]
+    )
+
+    if addition_type == "무첨가":
+
+        addition_step = 0
+        addition_volume = 0.0
 
     else:
 
-        addition_type = "없음"
-        addition_step = np.nan
-        addition_volume = np.nan
+        addition_step = st.sidebar.number_input(
+            "첨가 단계",
+            min_value=1,
+            max_value=6,
+            value=1,
+            step=1
+        )
+
+        addition_volume = st.sidebar.number_input(
+            "산·염기 첨가량(mL)",
+            min_value=0.0,
+            max_value=6.0,
+            value=float(addition_step),
+            step=1.0
+        )
+
+
+# --------------------------------------------------
+# 기타 시료
+# --------------------------------------------------
+
+else:
+
+    concentration = st.sidebar.number_input(
+        "플루오레세인 나트륨 농도(%)",
+        min_value=0.0000,
+        value=0.0010,
+        step=0.0010,
+        format="%.4f"
+    )
+
+    ph = st.sidebar.number_input(
+        "실제 pH",
+        min_value=0.0,
+        max_value=14.0,
+        value=6.0,
+        step=0.1
+    )
+
+    addition_type = "없음"
+    addition_step = np.nan
+    addition_volume = np.nan
 
 
 # ==================================================
 # ROI 설정
 # ==================================================
 
-st.sidebar.header("ROI 설정")
+st.sidebar.header("📐 ROI 설정")
 
 st.sidebar.info(
-    "현재는 증류수 대조군 실험 전의 임시 ROI입니다.\n\n"
-    "최종 ROI는 전체 실험이 끝난 후 결정하세요."
+    "사진의 EXIF 회전 정보를 자동으로 보정한 후 ROI를 적용합니다.\n\n"
+    "현재 권장 ROI:\n"
+    "왼쪽 35% / 오른쪽 65%\n"
+    "위쪽 50% / 아래쪽 65%"
 )
 
 x_start = st.sidebar.slider(
     "왼쪽 위치 (%)",
-    0, 90, 20
+    0,
+    90,
+    35
 )
 
 x_end = st.sidebar.slider(
     "오른쪽 위치 (%)",
-    10, 100, 80
+    10,
+    100,
+    65
 )
 
 y_start = st.sidebar.slider(
     "위쪽 위치 (%)",
-    0, 90, 40
+    0,
+    90,
+    50
 )
 
 y_end = st.sidebar.slider(
     "아래쪽 위치 (%)",
-    10, 100, 60
+    10,
+    100,
+    65
 )
 
 
@@ -180,12 +246,30 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files:
 
+    st.subheader("📷 형광 사진 분석")
+
     for i, file in enumerate(uploaded_files):
 
-        image = Image.open(file).convert("RGB")
+        # --------------------------------------------------
+        # 이미지 불러오기
+        # EXIF 회전 정보 자동 적용
+        # --------------------------------------------------
+
+        image = Image.open(file)
+
+        # 휴대폰 사진의 EXIF 방향 정보를 실제 픽셀에 적용
+        image = ImageOps.exif_transpose(image)
+
+        image = image.convert("RGB")
+
         img = np.array(image)
 
         h, w = img.shape[:2]
+
+
+        # --------------------------------------------------
+        # ROI 좌표
+        # --------------------------------------------------
 
         x1 = int(w * x_start / 100)
         x2 = int(w * x_end / 100)
@@ -195,35 +279,58 @@ if uploaded_files:
 
         roi = img[y1:y2, x1:x2]
 
+
         if roi.size == 0:
-            st.error("ROI 범위를 다시 설정하세요.")
+
+            st.error(
+                f"{file.name}: ROI 범위를 다시 설정하세요."
+            )
+
             continue
 
 
-        # --------------------------------------------------
-        # 녹색 채널
-        # --------------------------------------------------
+        # ==================================================
+        # 녹색 채널 추출
+        # ==================================================
 
         green = roi[:, :, 1]
 
 
-        # --------------------------------------------------
-        # ROI 전체 평균
-        # --------------------------------------------------
+        # ==================================================
+        # ROI 전체 평균 녹색 밝기
+        # ==================================================
 
-        roi_mean_green = float(np.mean(green))
-        roi_max_green = int(np.max(green))
+        roi_mean_green = float(
+            np.mean(green)
+        )
 
-        roi_saturated = np.sum(green >= 250)
+
+        # ==================================================
+        # ROI 최대 녹색 밝기
+        # ==================================================
+
+        roi_max_green = int(
+            np.max(green)
+        )
+
+
+        # ==================================================
+        # 포화 픽셀 비율
+        # ==================================================
+
+        roi_saturated = np.sum(
+            green >= 250
+        )
 
         roi_saturation_ratio = (
             roi_saturated / green.size
         ) * 100
 
 
-        # --------------------------------------------------
-        # Otsu 이진화
-        # --------------------------------------------------
+        # ==================================================
+        # Otsu 분석
+        # 참고용으로만 계산
+        # ==================================================
 
         threshold, mask = cv2.threshold(
             green,
@@ -232,29 +339,25 @@ if uploaded_files:
             cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
 
-        fluorescent = green[mask == 255]
+        fluorescent = green[
+            mask == 255
+        ]
+
 
         if len(fluorescent) > 0:
 
-            mean_green = float(np.mean(fluorescent))
-            max_green = int(np.max(fluorescent))
-
-            saturated = np.sum(fluorescent >= 250)
-
-            saturation_ratio = (
-                saturated / len(fluorescent)
-            ) * 100
+            otsu_mean = float(
+                np.mean(fluorescent)
+            )
 
         else:
 
-            mean_green = 0
-            max_green = 0
-            saturation_ratio = 0
+            otsu_mean = 0
 
 
-        # --------------------------------------------------
-        # 분석 영역 표시
-        # --------------------------------------------------
+        # ==================================================
+        # ROI 표시
+        # ==================================================
 
         display = img.copy()
 
@@ -267,13 +370,21 @@ if uploaded_files:
         )
 
 
+        # ==================================================
+        # 화면 표시
+        # ==================================================
+
         col1, col2 = st.columns(2)
+
 
         with col1:
 
             st.image(
                 display,
-                caption="파란 사각형 = 현재 분석 ROI",
+                caption=(
+                    "파란 사각형 = 현재 분석 ROI "
+                    "(EXIF 회전 보정 후)"
+                ),
                 use_container_width=True
             )
 
@@ -281,13 +392,13 @@ if uploaded_files:
         with col2:
 
             st.metric(
-                "ROI 전체 평균 녹색 밝기",
+                "⭐ 최종 분석값 · ROI 평균 녹색 밝기",
                 f"{roi_mean_green:.2f}"
             )
 
             st.metric(
-                "Otsu 평균 녹색 밝기",
-                f"{mean_green:.2f}"
+                "ROI 최대 녹색 밝기",
+                f"{roi_max_green}"
             )
 
             st.metric(
@@ -295,31 +406,36 @@ if uploaded_files:
                 f"{roi_saturation_ratio:.2f}%"
             )
 
-            st.write(
+            st.caption(
+                f"Otsu 평균 녹색 밝기(참고용): "
+                f"{otsu_mean:.2f}"
+            )
+
+            st.caption(
                 f"Otsu 임계값: {threshold:.1f}"
             )
 
 
-        # --------------------------------------------------
+        # ==================================================
         # 포화 경고
-        # --------------------------------------------------
+        # ==================================================
 
         if roi_saturation_ratio < 1:
 
             st.success(
-                "ROI의 포화 픽셀이 거의 없습니다."
+                "✅ ROI의 포화 픽셀이 거의 없습니다."
             )
 
         elif roi_saturation_ratio < 5:
 
             st.warning(
-                "ROI에 일부 포화 픽셀이 있습니다."
+                "⚠️ ROI에 일부 포화 픽셀이 있습니다."
             )
 
         else:
 
             st.error(
-                "ROI에 포화 픽셀이 많습니다. "
+                "⚠️ ROI에 포화 픽셀이 많습니다. "
                 "형광 밝기 비교에 주의하세요."
             )
 
@@ -329,7 +445,7 @@ if uploaded_files:
         # ==================================================
 
         if st.button(
-            f"{file.name} 데이터 저장",
+            f"💾 {file.name} 데이터 저장",
             key=f"save_{i}"
         ):
 
@@ -358,9 +474,11 @@ if uploaded_files:
                 "pH":
                     ph,
 
-                # 현재는 ROI 전체 평균을 기본 데이터로 저장
                 "평균 녹색 밝기":
-                    round(roi_mean_green, 2),
+                    round(
+                        roi_mean_green,
+                        2
+                    ),
 
                 "최대 녹색 밝기":
                     roi_max_green,
@@ -380,6 +498,7 @@ if uploaded_files:
                 ],
                 ignore_index=True
             )
+
 
             st.success(
                 f"{file.name} 데이터가 저장되었습니다."
@@ -405,16 +524,17 @@ if not df.empty:
     )
 
 
-    # --------------------------------------------------
+    # ==================================================
     # CSV 다운로드
-    # --------------------------------------------------
+    # ==================================================
 
     csv = df.to_csv(
         index=False
     ).encode("utf-8-sig")
 
+
     st.download_button(
-        "CSV 다운로드",
+        "⬇️ CSV 다운로드",
         csv,
         "fluorescence_data.csv",
         "text/csv"
@@ -422,7 +542,7 @@ if not df.empty:
 
 
     # ==================================================
-    # 농도 - 형광 밝기
+    # 1. 농도 - 형광 밝기
     # ==================================================
 
     conc_df = df[
@@ -435,12 +555,15 @@ if not df.empty:
     if not conc_df.empty:
 
         st.subheader(
-            "📈 플루오레세인 농도 - 형광 밝기"
+            "📈 플루오레세인 나트륨 농도 - 형광 밝기"
         )
+
 
         graph_data = (
             conc_df
-            .groupby("농도(%)")["평균 녹색 밝기"]
+            .groupby("농도(%)")[
+                "평균 녹색 밝기"
+            ]
             .mean()
             .reset_index()
             .sort_values("농도(%)")
@@ -448,8 +571,9 @@ if not df.empty:
 
 
         fig, ax = plt.subplots(
-            figsize=(8, 5)
+            figsize=(9, 6)
         )
+
 
         ax.plot(
             graph_data["농도(%)"],
@@ -457,8 +581,9 @@ if not df.empty:
             marker="o"
         )
 
+
         ax.set_xlabel(
-            "Fluorescein concentration (%)"
+            "Fluorescein sodium concentration (%)"
         )
 
         ax.set_ylabel(
@@ -474,59 +599,63 @@ if not df.empty:
             alpha=0.3
         )
 
+
         st.pyplot(fig)
 
+        plt.close(fig)
+
 
     # ==================================================
-    # pH - 형광 밝기
+    # 2. 일반용액 pH - 형광 밝기
     # ==================================================
 
-    ph_df = df[
-        df["시료 종류"] != "농도 예비실험"
+    reference_df = df[
+        df["시료 종류"] == "pH-형광 기준 시료"
     ].dropna(
         subset=["pH"]
     )
 
 
-    if not ph_df.empty:
+    if not reference_df.empty:
 
         st.subheader(
-            "📈 pH - 형광 밝기"
+            "📈 일반용액의 pH - 형광 발광 세기"
         )
 
 
-        # ----------------------------------------------
-        # 시료 종류별 그래프
-        # ----------------------------------------------
+        graph_data = (
+            reference_df
+            .groupby("pH")[
+                "평균 녹색 밝기"
+            ]
+            .mean()
+            .reset_index()
+            .sort_values("pH")
+        )
+
 
         fig, ax = plt.subplots(
-            figsize=(9, 6)
+            figsize=(10, 6)
         )
 
 
-        for name in ph_df[
-            "시료 종류"
-        ].unique():
-
-            sub = ph_df[
-                ph_df["시료 종류"] == name
-            ].sort_values("pH")
-
-
-            ax.plot(
-                sub["pH"],
-                sub["평균 녹색 밝기"],
-                marker="o",
-                label=name
-            )
+        ax.plot(
+            graph_data["pH"],
+            graph_data["평균 녹색 밝기"],
+            marker="o"
+        )
 
 
         ax.set_xlabel(
-            "pH"
+            "Actual pH"
         )
 
         ax.set_ylabel(
             "Mean green intensity"
+        )
+
+        ax.set_title(
+            "pH and Fluorescence Intensity"
         )
 
         ax.set_ylim(
@@ -538,13 +667,14 @@ if not df.empty:
             alpha=0.3
         )
 
-        ax.legend()
 
         st.pyplot(fig)
 
+        plt.close(fig)
+
 
     # ==================================================
-    # pH 6 완충용액 - 첨가량 그래프
+    # 3. pH 6 완충용액 데이터
     # ==================================================
 
     buffer_df = df[
@@ -561,9 +691,9 @@ if not df.empty:
         )
 
 
-        # ----------------------------------------------
-        # 산 첨가
-        # ----------------------------------------------
+        # ==================================================
+        # HCl
+        # ==================================================
 
         acid_df = buffer_df[
             buffer_df["첨가 종류"] == "HCl"
@@ -574,17 +704,59 @@ if not df.empty:
 
         if not acid_df.empty:
 
-            st.write("### HCl 첨가")
+            st.write("### 🔴 HCl 첨가에 따른 pH 변화")
+
 
             fig, ax = plt.subplots(
-                figsize=(9, 5)
+                figsize=(10, 5)
             )
+
+
+            ax.plot(
+                acid_df["첨가량(mL)"],
+                acid_df["pH"],
+                marker="o"
+            )
+
+
+            ax.set_xlabel(
+                "HCl added (mL)"
+            )
+
+            ax.set_ylabel(
+                "Actual pH"
+            )
+
+            ax.set_title(
+                "pH 6 Buffer: HCl Addition"
+            )
+
+            ax.grid(
+                alpha=0.3
+            )
+
+
+            st.pyplot(fig)
+
+            plt.close(fig)
+
+
+            st.write(
+                "### HCl 첨가에 따른 형광 밝기"
+            )
+
+
+            fig, ax = plt.subplots(
+                figsize=(10, 5)
+            )
+
 
             ax.plot(
                 acid_df["첨가량(mL)"],
                 acid_df["평균 녹색 밝기"],
                 marker="o"
             )
+
 
             ax.set_xlabel(
                 "HCl added (mL)"
@@ -603,12 +775,15 @@ if not df.empty:
                 alpha=0.3
             )
 
+
             st.pyplot(fig)
 
+            plt.close(fig)
 
-        # ----------------------------------------------
-        # NaOH 첨가
-        # ----------------------------------------------
+
+        # ==================================================
+        # NaOH
+        # ==================================================
 
         base_df = buffer_df[
             buffer_df["첨가 종류"] == "NaOH"
@@ -619,17 +794,59 @@ if not df.empty:
 
         if not base_df.empty:
 
-            st.write("### NaOH 첨가")
+            st.write("### 🔵 NaOH 첨가에 따른 pH 변화")
+
 
             fig, ax = plt.subplots(
-                figsize=(9, 5)
+                figsize=(10, 5)
             )
+
+
+            ax.plot(
+                base_df["첨가량(mL)"],
+                base_df["pH"],
+                marker="o"
+            )
+
+
+            ax.set_xlabel(
+                "NaOH added (mL)"
+            )
+
+            ax.set_ylabel(
+                "Actual pH"
+            )
+
+            ax.set_title(
+                "pH 6 Buffer: NaOH Addition"
+            )
+
+            ax.grid(
+                alpha=0.3
+            )
+
+
+            st.pyplot(fig)
+
+            plt.close(fig)
+
+
+            st.write(
+                "### NaOH 첨가에 따른 형광 밝기"
+            )
+
+
+            fig, ax = plt.subplots(
+                figsize=(10, 5)
+            )
+
 
             ax.plot(
                 base_df["첨가량(mL)"],
                 base_df["평균 녹색 밝기"],
                 marker="o"
             )
+
 
             ax.set_xlabel(
                 "NaOH added (mL)"
@@ -648,38 +865,53 @@ if not df.empty:
                 alpha=0.3
             )
 
+
             st.pyplot(fig)
 
+            plt.close(fig)
 
-        # ----------------------------------------------
-        # pH 변화 그래프
-        # ----------------------------------------------
+
+        # ==================================================
+        # 완충용액의 pH - 형광 밝기
+        # ==================================================
 
         st.write(
-            "### pH 변화에 따른 형광 밝기"
+            "### 📈 pH 6 완충용액의 pH - 형광 발광 세기"
         )
+
+
+        # HCl과 NaOH를 절대로 하나의 선으로 연결하지 않음
 
         fig, ax = plt.subplots(
-            figsize=(9, 5)
+            figsize=(10, 6)
         )
 
 
-        for name in buffer_df[
-            "첨가 종류"
-        ].unique():
+        if not acid_df.empty:
 
-            sub = buffer_df[
-                buffer_df["첨가 종류"] == name
-            ].sort_values(
+            acid_plot = acid_df.sort_values(
                 "pH"
             )
 
+            ax.plot(
+                acid_plot["pH"],
+                acid_plot["평균 녹색 밝기"],
+                marker="o",
+                label="HCl"
+            )
+
+
+        if not base_df.empty:
+
+            base_plot = base_df.sort_values(
+                "pH"
+            )
 
             ax.plot(
-                sub["pH"],
-                sub["평균 녹색 밝기"],
+                base_plot["pH"],
+                base_plot["평균 녹색 밝기"],
                 marker="o",
-                label=name
+                label="NaOH"
             )
 
 
@@ -691,74 +923,8 @@ if not df.empty:
             "Mean green intensity"
         )
 
-        ax.set_ylim(
-            0,
-            255
-        )
-
-        ax.grid(
-            alpha=0.3
-        )
-
-        ax.legend()
-
-        st.pyplot(fig)
-
-
-    # ==================================================
-    # 증류수 대조군
-    # ==================================================
-
-    control_df = df[
-        df["시료 종류"] == "증류수 대조군"
-    ].dropna(
-        subset=["pH"]
-    )
-
-
-    if not control_df.empty:
-
-        st.subheader(
-            "🔬 pH 6 완충용액 vs 증류수 대조군"
-        )
-
-
-        fig, ax = plt.subplots(
-            figsize=(9, 6)
-        )
-
-
-        buffer_plot = buffer_df.sort_values(
-            "pH"
-        )
-
-        control_plot = control_df.sort_values(
-            "pH"
-        )
-
-
-        ax.plot(
-            buffer_plot["pH"],
-            buffer_plot["평균 녹색 밝기"],
-            marker="o",
-            label="pH 6 완충용액"
-        )
-
-
-        ax.plot(
-            control_plot["pH"],
-            control_plot["평균 녹색 밝기"],
-            marker="o",
-            label="증류수 대조군"
-        )
-
-
-        ax.set_xlabel(
-            "Actual pH"
-        )
-
-        ax.set_ylabel(
-            "Mean green intensity"
+        ax.set_title(
+            "pH and Fluorescence Intensity of pH 6 Buffer"
         )
 
         ax.set_ylim(
@@ -772,15 +938,20 @@ if not df.empty:
 
         ax.legend()
 
+
         st.pyplot(fig)
+
+        plt.close(fig)
 
 
 # ==================================================
 # 데이터 초기화
 # ==================================================
 
+st.sidebar.divider()
+
 if st.sidebar.button(
-    "데이터 초기화"
+    "🗑️ 데이터 초기화"
 ):
 
     st.session_state.data = pd.DataFrame(
